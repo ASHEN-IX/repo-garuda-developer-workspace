@@ -1,8 +1,9 @@
 {
-  "projectRoots": [
-    "~/Projects",
-    "~/projects",
-    "~/code"
-  ],
-  "maxDepth": 4
+  "projectRoots": ["~/Projects"],
+  "maxDepth": 4,
+  "editor": {"executable": "code", "arguments": []},
+  "terminal": {"executable": "konsole", "arguments": ["--separate"]},
+  "shell": null,
+  "aiExecutables": {"codex": null, "claude": null, "agy": null},
+  "dockerContext": null
 }

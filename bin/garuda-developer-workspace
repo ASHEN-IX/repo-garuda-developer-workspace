@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mode="${1:-projects}"
+if [[ $# -gt 1 || ( "$mode" != projects && "$mode" != services ) ]]; then
+  echo "Usage: garuda-developer-workspace [projects|services]" >&2
+  exit 2
+fi
+source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f "$source_dir/plugin/shell.qml" ]]; then
+  entry="$source_dir/plugin/shell.qml"
+else
+  entry="${XDG_DATA_HOME:-$HOME/.local/share}/garuda-developer-workspace/plugin/shell.qml"
+fi
+qs_bin="${GDW_QUICKSHELL:-}"
+if [[ -z "$qs_bin" ]]; then
+  qs_bin="$(command -v quickshell || command -v qs || true)"
+fi
+if [[ -z "$qs_bin" || ! -x "$qs_bin" ]]; then
+  echo 'Quickshell 0.3.x is required. On Garuda: sudo pacman -Syu quickshell' >&2
+  exit 1
+fi
+version="$("$qs_bin" --version 2>&1)"
+if [[ ! "$version" =~ (^|[^0-9])0\.3\.[0-9]+ ]]; then
+  echo "Quickshell 0.3.x is required; detected: $version" >&2
+  exit 1
+fi
+if [[ ! -f "$entry" ]]; then
+  echo "Application files missing: $entry. Rerun install.sh." >&2
+  exit 1
+fi
+if [[ -z "${XDG_RUNTIME_DIR:-}" || ! -d "$XDG_RUNTIME_DIR" || ! -O "$XDG_RUNTIME_DIR" ]]; then
+  echo 'A user-owned XDG_RUNTIME_DIR is required. Launch from your KDE session.' >&2
+  exit 1
+fi
+command -v flock >/dev/null || { echo 'flock is required (util-linux).' >&2; exit 1; }
+# Serialize the lookup/start sequence: --no-duplicate alone has a startup race.
+exec 9>"$XDG_RUNTIME_DIR/garuda-developer-workspace-launch.lock"
+flock -x -w 15 9 || { echo 'Another workspace launch is still starting. Retry shortly.' >&2; exit 1; }
+trap 'flock -u 9' EXIT
+export GDW_MODE="$mode"
+export QT_QUICK_CONTROLS_STYLE="${QT_QUICK_CONTROLS_STYLE:-Basic}"
+if reply="$("$qs_bin" ipc --path "$entry" call workspace open "$mode" 2>/dev/null)" && [[ "$reply" = true ]]; then
+  exit 0
+fi
+# The startup lock and Quickshell instance check cover simultaneous launches.
+"$qs_bin" --path "$entry" --no-duplicate --daemonize
+for ((attempt=0; attempt<30; attempt++)); do
+  if reply="$("$qs_bin" ipc --path "$entry" call workspace open "$mode" 2>/dev/null)" && [[ "$reply" = true ]]; then
+    exit 0
+  fi
+  sleep 0.1
+done
+echo 'Quickshell did not expose the workspace IPC handler. Run quickshell --path <installed plugin/shell.qml> to see its errors.' >&2
+exit 1
